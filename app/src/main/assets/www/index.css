@@ -1,0 +1,110 @@
+body{
+
+ display: block;
+
+ position: fixed;
+
+ margin: 0px;
+
+ width: 100dvw;
+
+ height: 100dvh;
+
+ box-sizing: border-box;
+
+ overflow: hidden;
+}
+main{
+ width: 100%;
+ height: 100%;
+ display: flex;
+ position: relative;
+ left: 0px;
+ top: 0px;
+ box-sizing: border-box;
+ overflow: hidden;
+ scrollbar-width: none;
+ background-color: #141414;
+ flex-direction: column;
+ align-items: center;
+ justify-content: center;
+}
+main>Splash{
+ content: "";
+ width: 55%;
+ max-width: 280px;
+ height: auto;
+ display: block;
+ aspect-ratio: 1 / 1 auto;
+ position: relative;
+ mask-repeat: no-repeat;
+ mask-position: center;
+ mask-size: cover;
+ inset: 0;
+ z-index: 1;
+ transition: 0.25s;
+ animation: 1s LogoGradient infinite;
+ mask-image: url('src/Images/Icon.png');
+ background: linear-gradient(0deg, #f40000 0%, #f46600 var(--stop1), #f46600 100%);
+} 
+
+main>Loading{
+
+}
+main>Loading>p{
+ position: relative;
+ top: 0px;
+ left: 0px;
+ text-align: center;
+ margin: 0px;
+ color: white;
+ font-family: quicksand;
+ margin-block-start: 5px;
+}
+main>Loading>bar{
+ width: 150px;
+ height: 5px;
+ position: relative;
+ display: flex;
+ box-sizing: border-box;
+ margin-block-start: 20px;
+ background-color: #262626;
+}
+main>Loading>bar:before{
+ content: "";
+ width: 25%;
+ height: 100%;
+ background-color: #496dff;
+ transition: 0.25s;
+ animation: 2s linear loading infinite;
+ position: absolute;
+}
+@property --stop1 {
+ syntax: '<percentage>';
+ inherits: false;
+ initial-value: 0%;
+}
+
+@keyframes LogoGradient {
+ 0% {
+  --stop1: 30%;
+ }
+ 50% {
+  --stop1: 70%;
+ }
+ 100% {
+  --stop1: 30%;
+ }
+}
+@keyframes loading {
+ 0% {
+  left: 0%
+ }
+ 50% {
+  left: 100%;
+  transform: translateX(-100%)
+ }
+ 100% {
+  left: 0%;
+ }
+}

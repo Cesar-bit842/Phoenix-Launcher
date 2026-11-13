@@ -22,7 +22,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URI;
-import java.net.UnsupportedEncodingException;
+import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -41,9 +41,9 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Android helper for Hytale's browser-based OAuth authorization-code flow with PKCE.
  *
- * The account password is entered only on Hytale's authorization page. Tokens are returned
- * to the caller and are never persisted or logged by this class. Use a client ID and redirect
- * URI that Hytale has authorized for your application.
+ * The account password is entered only on Hytale's authorization page. Tokens are persisted
+ * encrypted with an Android Keystore key after login and are never logged by this class. Use a
+ * client ID and redirect URI that Hytale has authorized for your application.
  */
 public final class HytaleAuthLibrary {
     private static final String DEFAULT_AUTHORIZATION_ENDPOINT =
@@ -106,8 +106,9 @@ public final class HytaleAuthLibrary {
     }
 
     /**
-     * Opens Hytale authorization in the external browser and returns the resulting OAuth tokens.
-     * Network work runs off the UI thread; callback methods run on Android's main thread.
+     * Opens Hytale authorization in the external browser, saves the resulting OAuth tokens
+     * encrypted on the device, and returns them. Network and storage work runs off the UI thread;
+     * callback methods run on Android's main thread.
      */
     public void login(Context context, Callback<AuthTokens> callback) {
         Objects.requireNonNull(context, "context");
@@ -121,6 +122,7 @@ public final class HytaleAuthLibrary {
         new Thread(() -> {
             try {
                 AuthTokens tokens = performLogin(appContext);
+                HytaleAuthSessionStore.save(appContext, tokens);
                 postSuccess(callback, tokens);
             } catch (Exception exception) {
                 postError(callback, exception);
@@ -166,6 +168,61 @@ public final class HytaleAuthLibrary {
                 postError(callback, exception);
             }
         }, "hytale-oauth-refresh").start();
+    }
+
+    /**
+     * Restores the encrypted session saved by {@link #login(Context, Callback)}.
+     * If its access token expires within one minute, the refresh token is exchanged and the
+     * updated session is saved before the callback succeeds. Callbacks run on Android's main
+     * thread. If no session is saved, or it cannot be restored, {@code onError} is called.
+     */
+    public void restoreSession(Context context, Callback<AuthTokens> callback) {
+        Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(callback, "callback");
+        Context appContext = context.getApplicationContext();
+        new Thread(() -> {
+            try {
+                AuthTokens savedTokens = HytaleAuthSessionStore.load(appContext);
+                if (savedTokens == null) {
+                    throw new IOException("No saved Hytale session was found");
+                }
+
+                if (savedTokens.getExpiresAtEpochMillis() > System.currentTimeMillis() + 60_000L) {
+                    postSuccess(callback, savedTokens);
+                    return;
+                }
+                if (savedTokens.getRefreshToken() == null
+                        || savedTokens.getRefreshToken().trim().isEmpty()) {
+                    throw new IOException("The saved Hytale session has no refresh token");
+                }
+
+                Map<String, String> form = new LinkedHashMap<>();
+                form.put("grant_type", "refresh_token");
+                form.put("refresh_token", savedTokens.getRefreshToken());
+                form.put("client_id", clientId);
+                AuthTokens refreshedTokens = exchangeTokens(form, savedTokens.getRefreshToken());
+                HytaleAuthSessionStore.save(appContext, refreshedTokens);
+                postSuccess(callback, refreshedTokens);
+            } catch (Exception exception) {
+                postError(callback, exception);
+            }
+        }, "hytale-oauth-restore").start();
+    }
+
+    /**
+     * Returns whether encrypted session data is present. This does not decrypt or validate it.
+     */
+    public boolean hasSavedSession(Context context) {
+        Objects.requireNonNull(context, "context");
+        return HytaleAuthSessionStore.exists(context.getApplicationContext());
+    }
+
+    /**
+     * Removes the saved session and its encryption key from this app's Android Keystore.
+     */
+    public void logout(Context context) throws IOException {
+        Objects.requireNonNull(context, "context");
+        HytaleAuthSessionStore.clear(context.getApplicationContext());
     }
 
     private AuthTokens performLogin(Context context) throws Exception {
@@ -502,11 +559,25 @@ public final class HytaleAuthLibrary {
         private final String accessToken;
         private final String refreshToken;
         private final long expiresInSeconds;
+        private final long expiresAtEpochMillis;
 
         private AuthTokens(String accessToken, String refreshToken, long expiresInSeconds) {
+            this(
+                    accessToken,
+                    refreshToken,
+                    expiresInSeconds,
+                    System.currentTimeMillis() + expiresInSeconds * 1000L);
+        }
+
+        AuthTokens(
+                String accessToken,
+                String refreshToken,
+                long expiresInSeconds,
+                long expiresAtEpochMillis) {
             this.accessToken = accessToken;
             this.refreshToken = refreshToken;
             this.expiresInSeconds = expiresInSeconds;
+            this.expiresAtEpochMillis = expiresAtEpochMillis;
         }
 
         public String getAccessToken() {
@@ -519,6 +590,13 @@ public final class HytaleAuthLibrary {
 
         public long getExpiresInSeconds() {
             return expiresInSeconds;
+        }
+
+        /**
+         * Returns the access token expiration time as milliseconds since the Unix epoch.
+         */
+        public long getExpiresAtEpochMillis() {
+            return expiresAtEpochMillis;
         }
     }
 

@@ -7,6 +7,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 /**
  * Utilidad para gestionar archivos accesibles en el almacenamiento del dispositivo
@@ -39,6 +40,50 @@ public class PublicStorageUtils {
 
     public static boolean exists(File file) {
         return file != null && file.exists();
+    }
+
+    /**
+     * Crea una carpeta y sus carpetas padre en la ruta absoluta dada.
+     */
+    public static boolean createDirectory(String absolutePath) {
+        if (absolutePath == null || absolutePath.trim().isEmpty()) {
+            return false;
+        }
+        File directory = new File(absolutePath);
+        return directory.isDirectory() || directory.mkdirs();
+    }
+
+    /**
+     * Elimina una carpeta vacía en la ruta absoluta dada.
+     */
+    public static boolean deleteDirectory(String absolutePath) {
+        return deleteDirectory(absolutePath, false);
+    }
+
+    /**
+     * Elimina una carpeta en la ruta absoluta dada. Si {@code recursive} es false,
+     * solo elimina carpetas vacías; si es true, también elimina su contenido.
+     */
+    public static boolean deleteDirectory(String absolutePath, boolean recursive) {
+        if (absolutePath == null || absolutePath.trim().isEmpty()) {
+            return false;
+        }
+        File directory = new File(absolutePath);
+        if (!directory.isDirectory()) {
+            return false;
+        }
+        try {
+            File canonicalDirectory = directory.getCanonicalFile();
+            File externalStorageRoot = Environment.getExternalStorageDirectory().getCanonicalFile();
+            if (canonicalDirectory.getParentFile() == null
+                    || canonicalDirectory.equals(externalStorageRoot)) {
+                return false;
+            }
+            return recursive ? deleteRecursively(directory) : directory.delete();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     /**
@@ -110,5 +155,22 @@ public class PublicStorageUtils {
             return file.delete();
         }
         return false;
+    }
+
+    private static boolean deleteRecursively(File file) throws IOException {
+        if (Files.isSymbolicLink(file.toPath()) || !file.isDirectory()) {
+            return file.delete();
+        }
+
+        File[] children = file.listFiles();
+        if (children == null) {
+            return false;
+        }
+        for (File child : children) {
+            if (!deleteRecursively(child)) {
+                return false;
+            }
+        }
+        return file.delete();
     }
 }

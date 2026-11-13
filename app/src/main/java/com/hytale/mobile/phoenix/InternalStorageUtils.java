@@ -6,6 +6,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 /**
  * Utilidad para gestionar archivos dentro de la carpeta interna del programa
@@ -26,6 +27,45 @@ public class InternalStorageUtils {
     public static boolean exists(Context context, String relativePath) {
         File file = getFile(context, relativePath);
         return file.exists() && file.isFile();
+    }
+
+    /**
+     * Crea una carpeta y sus carpetas padre dentro del almacenamiento interno.
+     * No permite rutas que salgan de la carpeta privada de la aplicación.
+     */
+    public static boolean createDirectory(Context context, String relativePath) {
+        try {
+            File directory = getDirectory(context, relativePath);
+            return directory.isDirectory() || directory.mkdirs();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * Elimina una carpeta vacía del almacenamiento interno.
+     */
+    public static boolean deleteDirectory(Context context, String relativePath) {
+        return deleteDirectory(context, relativePath, false);
+    }
+
+    /**
+     * Elimina una carpeta del almacenamiento interno. Si {@code recursive} es false,
+     * solo elimina carpetas vacías; si es true, también elimina su contenido.
+     * No permite eliminar la raíz del almacenamiento interno ni salir de ella.
+     */
+    public static boolean deleteDirectory(Context context, String relativePath, boolean recursive) {
+        try {
+            File directory = getDirectory(context, relativePath);
+            if (!directory.isDirectory()) {
+                return false;
+            }
+            return recursive ? deleteRecursively(directory) : directory.delete();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     /**
@@ -97,5 +137,38 @@ public class InternalStorageUtils {
             return file.delete();
         }
         return false;
+    }
+
+    private static File getDirectory(Context context, String relativePath) throws IOException {
+        if (relativePath == null || relativePath.trim().isEmpty()) {
+            throw new IOException("Directory path must not be empty");
+        }
+
+        File root = context.getFilesDir().getCanonicalFile();
+        File requestedDirectory = new File(root, relativePath).getAbsoluteFile();
+        File canonicalDirectory = requestedDirectory.getCanonicalFile();
+        String rootPath = root.getPath();
+        if (canonicalDirectory.equals(root)
+                || !canonicalDirectory.getPath().startsWith(rootPath + File.separator)) {
+            throw new IOException("Directory path must stay inside app internal storage");
+        }
+        return requestedDirectory;
+    }
+
+    private static boolean deleteRecursively(File file) throws IOException {
+        if (Files.isSymbolicLink(file.toPath()) || !file.isDirectory()) {
+            return file.delete();
+        }
+
+        File[] children = file.listFiles();
+        if (children == null) {
+            return false;
+        }
+        for (File child : children) {
+            if (!deleteRecursively(child)) {
+                return false;
+            }
+        }
+        return file.delete();
     }
 }
