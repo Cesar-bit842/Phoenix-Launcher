@@ -54,6 +54,7 @@ main>form>group{
  position: relative;
  left: 0px;
  top: 0px;
+ padding-inline: 15px;
  box-sizing: border-box;
  text-align: center;
  align-items: center;
@@ -128,10 +129,11 @@ main>form>actions{
  flex-direction: column-reverse;
  gap: 8px;
  margin-block-start: 0px;
+ align-items: center;
 }
 main>form>actions>button{
  all: unset;
- width: 100%;
+ width: max-content;
  height: max-content;
  /* border: 1px solid #00e6ff; */
  background-color: #0080ff;
@@ -141,6 +143,7 @@ main>form>actions>button{
  color: white;
  font-family: quicksand;
  border-radius: 10px;
+ padding-inline: 50px;
 }
   
 :root[ThemeSystem="TW"]{
@@ -155,11 +158,14 @@ main>form>actions>button{
  main>form>group:nth-of-type(1)>p{
   color: #000000a1;
  } 
- main>form>group:nth-of-type(1)>text{}
- 
+ main>form>group:nth-of-type(1)>text{
+    color: black;
+}
+ main>form>group:nth-of-type(1)>b{
+  color: #7600ff;
+ }
  main>form>actions>button{
-  color: black;
-  border: 1px solid #000000;
+  color: #ffffff;
  }
 } 
 :root[ThemeSystem="TB"]{

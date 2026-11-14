@@ -40,6 +40,7 @@
     "Theme System": document.documentElement.getAttribute('ThemeSystem') ?? "TS"
   };
 
+  //JSON.parse(jsonString);
   AndroidBridge.saveConfig(JSON.stringify(Init));
   window.location.href = "../Auth/index.html";
  }

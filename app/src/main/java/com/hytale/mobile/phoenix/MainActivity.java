@@ -11,11 +11,11 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.FrameLayout;
 import android.widget.Toast;
 
-import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 public class MainActivity extends Activity {
     Gson gson = new Gson();
@@ -39,9 +39,7 @@ public class MainActivity extends Activity {
         webSettings.setAllowFileAccess(true);
         webSettings.setAllowContentAccess(true);
         webSettings.setAllowFileAccessFromFileURLs(true);
-        webSettings.setAllowUniversalAccessFromFileURLs(true);
-
-        // Add JavaScript Interface (Electron-like IPC Bridge)
+        webSettings.setAllowUniversalAccessFromFileURLs(true); 
         webView.addJavascriptInterface(new WebAppInterface(this), "AndroidBridge");
 
         webView.setWebViewClient(new WebViewClient() {
@@ -51,38 +49,32 @@ public class MainActivity extends Activity {
             }
         });
 
-        FrameLayout content = new FrameLayout(this);
-        content.addView(webView, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            ViewCompat.setOnApplyWindowInsetsListener(content, (view, windowInsets) -> {
-                androidx.core.graphics.Insets insets = windowInsets.getInsets(
-                        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-                view.setPadding(insets.left, insets.top, insets.right, insets.bottom);
-                return windowInsets;
-            });
-        }
-
-        setContentView(content);
-        ViewCompat.requestApplyInsets(content);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        setContentView(webView);
+        hideSystemBars();
 
         // Load web app from assets folder: assets/www/index.html
         webView.loadUrl("file:///android_asset/www/index.html");
+    } 
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            hideSystemBars();
+        }
+    }
+    private void hideSystemBars() {
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
+                getWindow(), getWindow().getDecorView());
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+        controller.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
     }
 
-    /**
-     * Guarda el contenido JSON en "config.json" usando InternalStorageUtils.
-     */
     public boolean saveConfigJson(String jsonContent) {
         return InternalStorageUtils.writeFile(this, "config.json", jsonContent, false);
     }
-
-    /**
-     * Lee el contenido JSON de "config.json" usando InternalStorageUtils.
-     * Si no existe, crea uno por defecto.
-     */
     public String readConfigJson() {
         if (!InternalStorageUtils.exists(this, "config.json")) {
             InternalStorageUtils.createFile(this, "config.json");
@@ -90,12 +82,10 @@ public class MainActivity extends Activity {
         }
         return InternalStorageUtils.readFile(this, "config.json");
     }
-
     public boolean ConfigExist(){
         return InternalStorageUtils.exists(this, "config.json");
     }
-
-    // JavaScript Bridge Class (Electron IPC equivalent)
+ 
     public class WebAppInterface {
         private final Context mContext;
 
@@ -109,8 +99,7 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public boolean ConfigurationFileExists() {
-            System.out.println("is exist?: " + ConfigExist());
+        public boolean ConfigurationFileExists() { 
             return ConfigExist();
         }
 
@@ -140,49 +129,49 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void loginHytale() {
-            hytaleAuth.login(MainActivity.this,
-                    new HytaleAuthLibrary.Callback<HytaleAuthLibrary.AuthTokens>() {
-                        @Override
-                        public void onSuccess(HytaleAuthLibrary.AuthTokens tokens) {
-                            System.out.println("token: " + tokens.getAccessToken());
-                            webView.evaluateJavascript("window.onHytaleLoginResult(true)", null);
-                        }
+            hytaleAuth.login(MainActivity.this, new HytaleAuthLibrary.Callback<HytaleAuthLibrary.AuthTokens>() {
+                @Override
+                public void onSuccess(HytaleAuthLibrary.AuthTokens tokens) {
+                    System.out.println("token: " + tokens.getAccessToken());
+                    webView.evaluateJavascript("window.onHytaleLoginResult(true)", null);
+                }
 
-                        @Override
-                        public void onError(Exception error) {
-                            System.out.println("error: " + error.getMessage());
-                            webView.evaluateJavascript("window.onHytaleLoginResult(false)", null);
-                        }
-                    });
+                @Override
+                public void onError(Exception error) {
+                    System.out.println("error: " + error.getMessage());
+                    webView.evaluateJavascript("window.onHytaleLoginResult(false)", null);
+                }
+            });
         }
 
         @JavascriptInterface
         public String readConfig() {
             return readConfigJson();
         }
-
-        @JavascriptInterface
-        public void showToast(String toast) {
-            Toast.makeText(mContext, toast, Toast.LENGTH_SHORT).show();
-        }
-
-        @JavascriptInterface
-        public String checkBox64Installed() {
-            try {
-                return box64Runtime.runVersion();
-            } catch (Exception e) {
-                return "error execute action";
-            }
-        }
-
-        @JavascriptInterface
-        public void installBox64() {
-            try {
-                box64Runtime.install();
-                Toast.makeText(mContext, "Box64 instalado con éxito", Toast.LENGTH_SHORT).show();
-            } catch (Exception e) {
-                Toast.makeText(mContext, "Error instalando Box64: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            }
-        }
+ 
     }
 }
+/*
+@JavascriptInterface
+public String checkBox64Installed() {
+    try {
+        return box64Runtime.runVersion();
+    } catch (Exception e) {
+        return "error execute action";
+    }
+}
+
+@JavascriptInterface
+public void installBox64() {
+    try {
+        box64Runtime.install();
+        Toast.makeText(mContext, "Box64 instalado con éxito", Toast.LENGTH_SHORT).show();
+    } catch (Exception e) {
+        Toast.makeText(mContext, "Error instalando Box64: " + e.getMessage(), Toast.LENGTH_LONG).show();
+    }
+}
+@JavascriptInterface
+public void showToast(String toast) {
+    Toast.makeText(mContext, toast, Toast.LENGTH_SHORT).show();
+} 
+*/

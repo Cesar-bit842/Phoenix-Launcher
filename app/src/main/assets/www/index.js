@@ -2,33 +2,32 @@
   document.addEventListener('DOMContentLoaded', Main);
 
   async function Main() {
-    setTimeout(function () {
-      let configValidation = false;
-      try {
-        configValidation = AndroidBridge.ConfigurationFileExists();
-      } catch (e) {
-        console.error("Error validando archivo de configuración:", e);
-        configValidation = false;
+    setTimeout(async function () {  
+     if(await ValidateConfig()){ 
+      if(await ValidateAccount()){
+       window.location.href = "./Launcher/index.html";
+       return;
       }
-
-      if (!configValidation) {
-        window.location.href = "./Setup/index.html";
-        return;
-      }
-
-      let hytaleValidation = false;
-      try {
-        hytaleValidation = Boolean(AndroidBridge.AuthorizedHytaleAccount());
-      } catch (e) {
-        console.error("Error validando cuenta de Hytale:", e);
-        hytaleValidation = false;
-      }
-
-      if (hytaleValidation) {
-        window.location.href = "./Launcher/index.html";
-      } else {
-        window.location.href = "./Auth/index.html";
-      }
+      window.location.href = "./Auth/index.html";
+      return;
+     }
+     window.location.href = "./Setup/index.html"; 
+     return;
     }, 3000);
+  }
+  
+  async function ValidateConfig(){
+   try {
+     return AndroidBridge.ConfigurationFileExists();
+   } catch (e) {
+     return false;
+   }
+  }
+  async function ValidateAccount(){
+   try {
+     return AndroidBridge.AuthorizedHytaleAccount();
+   }catch (e) {
+     return false;
+   }
   }
 })();
