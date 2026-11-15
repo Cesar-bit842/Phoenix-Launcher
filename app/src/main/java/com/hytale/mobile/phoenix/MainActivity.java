@@ -21,9 +21,11 @@ import androidx.core.view.WindowInsetsControllerCompat;
 
 import org.json.JSONObject;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_SELECT_VERSION_FOLDER = 4102;
@@ -31,6 +33,8 @@ public class MainActivity extends Activity {
     Gson gson = new Gson();
     private WebView webView;
     private Box64Runtime box64Runtime;
+    private JavaRuntimeInstaller javaRuntimeInstaller;
+    private HytaleVersionManager hytaleVersionManager;
     private final HytaleAuthLibrary hytaleAuth = new HytaleAuthLibrary("Phoenix");
     private boolean versionImportInProgress;
 
@@ -40,6 +44,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         box64Runtime = new Box64Runtime(getApplicationContext());
+        javaRuntimeInstaller = new JavaRuntimeInstaller(getApplicationContext());
+        hytaleVersionManager = new HytaleVersionManager(getApplicationContext());
 
 
         // Setup WebView shell
@@ -66,7 +72,7 @@ public class MainActivity extends Activity {
 
         // Load web app from assets folder: assets/www/index.html
         webView.loadUrl("file:///android_asset/www/index.html");
-    } 
+    }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
@@ -78,43 +84,89 @@ public class MainActivity extends Activity {
 
     public Process launchHytaleClient(
             String versionName,
-            String appDirectory,
-            String userDirectory,
-            String javaExecutable,
             String playerName,
             String authMode,
             String sessionUuid,
             String identityToken,
             String sessionToken) throws IOException {
-        List<String> arguments = buildHytaleClientArguments(
-                versionName, appDirectory, userDirectory, javaExecutable, playerName,
-                authMode, sessionUuid, identityToken, sessionToken);
-        if (box64Runtime == null) {
-            throw new IllegalStateException("El runtime de Box64 todavía no está inicializado.");
+        List<String> arguments = buildGameLaunchArguments(
+                versionName, playerName, authMode, sessionUuid, identityToken, sessionToken);
+        if (!box64Runtime.isInstalled()) {
+            throw new IllegalStateException("Instala Box64 antes de iniciar el juego.");
         }
+        javaRuntimeInstaller.ensureJavaRuntimeInstalled(null);
         String executablePath = "Versions/" + versionName + "/Client/HytaleClient.exe";
         return box64Runtime.launchExeInAppStorage(executablePath, arguments);
     }
 
     public void launchHytaleClientWithDisplay(
             String versionName,
-            String appDirectory,
-            String userDirectory,
-            String javaExecutable,
             String playerName,
             String authMode,
             String sessionUuid,
             String identityToken,
-            String sessionToken) {
-        List<String> arguments = buildHytaleClientArguments(
-                versionName, appDirectory, userDirectory, javaExecutable, playerName,
-                authMode, sessionUuid, identityToken, sessionToken);
+            String sessionToken) throws IOException {
+        List<String> arguments = buildGameLaunchArguments(
+                versionName, playerName, authMode, sessionUuid, identityToken, sessionToken);
         Intent intent = new Intent(this, GameDisplayActivity.class);
         intent.putExtra(GameDisplayActivity.EXTRA_EXECUTABLE_PATH,
                 "Versions/" + versionName + "/Client/HytaleClient.exe");
         intent.putStringArrayListExtra(
                 GameDisplayActivity.EXTRA_ARGUMENTS, new ArrayList<>(arguments));
         runOnUiThread(() -> startActivity(intent));
+    }
+
+    private List<String> buildGameLaunchArguments(
+            String versionName,
+            String playerName,
+            String authMode,
+            String sessionUuid,
+            String identityToken,
+            String sessionToken) throws IOException {
+        HytaleVersionManager.validateVersionName(versionName);
+        if (box64Runtime == null) {
+            throw new IllegalStateException("El runtime de Box64 todavía no está inicializado.");
+        }
+
+        File versionDirectory = hytaleVersionManager.resolveVersionDirectory(versionName);
+        File userDirectory = createUserDataDirectory(versionName, sessionUuid);
+        return buildHytaleClientArguments(
+                versionName,
+                AppStoragePaths.toWinePath(versionDirectory),
+                AppStoragePaths.toWinePath(userDirectory),
+                javaRuntimeInstaller.getJavaExecutableWinePath(),
+                playerName,
+                authMode,
+                sessionUuid,
+                identityToken,
+                sessionToken);
+    }
+
+    private File createUserDataDirectory(String versionName, String sessionUuid)
+            throws IOException {
+        requireLaunchArgument("sessionUuid", sessionUuid);
+        try {
+            UUID.fromString(sessionUuid);
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException("sessionUuid debe ser un UUID válido.", error);
+        }
+
+        File userDirectory = new File(
+                new File(new File(getFilesDir(), "UserData"), versionName),
+                sessionUuid);
+        File canonicalRoot = getFilesDir().getCanonicalFile();
+        File canonicalUserDirectory = userDirectory.getCanonicalFile();
+        if (!canonicalUserDirectory.toPath().startsWith(canonicalRoot.toPath())) {
+            throw new IOException("La carpeta de datos del usuario sale del almacenamiento privado.");
+        }
+        if (!canonicalUserDirectory.isDirectory() && !canonicalUserDirectory.mkdirs()) {
+            throw new IOException("No se pudo crear la carpeta de datos del usuario.");
+        }
+        return canonicalUserDirectory;
+    }
+
+    public List<String> getVersionDirectoryNames() {
+        return hytaleVersionManager.getVersionDirectoryNames();
     }
 
     private static List<String> buildHytaleClientArguments(
@@ -127,19 +179,17 @@ public class MainActivity extends Activity {
             String sessionUuid,
             String identityToken,
             String sessionToken) {
-        if (versionName == null
-                || versionName.trim().isEmpty()
-                || versionName.equals(".")
-                || versionName.equals("..")
-                || versionName.contains("/")
-                || versionName.contains("\\")) {
-            throw new IllegalArgumentException("El nombre de la versión no es válido.");
-        }
+        HytaleVersionManager.validateVersionName(versionName);
         requireLaunchArgument("appDirectory", appDirectory);
         requireLaunchArgument("userDirectory", userDirectory);
         requireLaunchArgument("javaExecutable", javaExecutable);
         requireLaunchArgument("playerName", playerName);
         requireLaunchArgument("sessionUuid", sessionUuid);
+        try {
+            UUID.fromString(sessionUuid);
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException("sessionUuid debe ser un UUID válido.", error);
+        }
         if (!"offline".equals(authMode) && !"authenticated".equals(authMode)) {
             throw new IllegalArgumentException("authMode debe ser 'offline' o 'authenticated'.");
         }
@@ -339,8 +389,11 @@ public class MainActivity extends Activity {
             });
         }
 
+
+
         @JavascriptInterface
         public void selectAndCopyVersion() {
+            installBox64();
             runOnUiThread(() -> {
                 if (versionImportInProgress) {
                     notifyVersionImport(
@@ -366,10 +419,53 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void installBox64() {
+            try {
+                box64Runtime.install();
+                Toast.makeText(mContext, "Box64 instalado con éxito", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(mContext, "Error instalando Box64: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        }
+        @JavascriptInterface
+        public void showToast(String toast) {
+            Toast.makeText(mContext, toast, Toast.LENGTH_SHORT).show();
+        }
+
+        @JavascriptInterface
+        public String getVersionDirectoryNames() {
+            return gson.toJson(MainActivity.this.getVersionDirectoryNames());
+        }
+
+        @JavascriptInterface
         public String readConfig() {
             return readConfigJson();
         }
- 
+
+        @JavascriptInterface
+        public void launchGame(
+            String versionName,
+            String playerName,
+            String authMode,
+            String sessionUuid,
+            String identityToken,
+            String sessionToken) {
+            try {
+                launchHytaleClientWithDisplay(
+                        versionName, playerName, authMode, sessionUuid, identityToken, sessionToken);
+            } catch (IOException | RuntimeException error) {
+                String message = error.getMessage() == null
+                        ? "No se pudo preparar el inicio del juego."
+                        : error.getMessage();
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                    webView.evaluateJavascript(
+                            "if (window.onGameLaunchError) window.onGameLaunchError("
+                                    + JSONObject.quote(message) + ");",
+                            null);
+                });
+            }
+        }
     }
 }
 /*

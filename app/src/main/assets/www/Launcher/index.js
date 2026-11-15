@@ -11,6 +11,15 @@
     TogglePanel(attr);
    });
   }
+  //selectAndCopyVersion
+  //getVersionDirectoryNames
+  //launchGame(
+  //String versionName,
+  //      String playerName,
+  //      String authMode,
+  //      String sessionUuid,
+  //      String identityToken,
+  //      String sessionToken)
  }      
  async function TogglePanel(Panel) { 
   const mainContainerId = 'main>Dashboard'; 

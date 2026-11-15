@@ -31,6 +31,7 @@ main{
  flex-direction: column;
  align-items: center;
  justify-content: center;
+ overflow: hidden;
 } 
 main>Dashboard{
  &{
@@ -42,6 +43,9 @@ main>Dashboard{
   position: relative;
   left: 0px;
   top: 0px;
+  scrollbar-width: none;
+  overflow: auto;
+  box-sizing: border-box;
  }
  >Panel{
   width: 100%;
@@ -49,11 +53,13 @@ main>Dashboard{
   position: relative;
   left: 0px;
   top: 0px;
-  display: block;
-  box-sizing: border-box;
+  display: flex;
   --Translation-Of-Objects: translate(50px, 0px);
   --Transition-Time-Of-Objects: 0.5s;
   transition: 0.25s;
+  box-sizing: border-box;
+  padding: 15px;
+  flex-direction: column;
  }
  >Panel *{
   transition: 0.25s;
@@ -62,7 +68,177 @@ main>Dashboard{
   display: none;
  }
  >Panel[pnel="versions"]{
-  
+  &{
+   
+  }
+  >toppanel{
+   width: 100%;
+   height: max-content;
+   display: flex;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   box-sizing: border-box;
+   flex-direction: row;
+   align-items: center;
+   justify-content: space-between;
+  }
+  >toppanel>button{
+   all: unset;
+   width: max-content;
+   height: max-content;
+   aspect-ratio: 1 / 1 auto;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   border-radius: 10px;
+   background-color: #4297ff;
+  }
+  >toppanel>button>img{
+   height: 45px;
+   width: max-content;
+   aspect-ratio: 1 / 1 auto;
+   position: relative;
+   left: 0px;
+   display: block;
+  }
+  >toppanel>div{
+   display: flex;
+   flex-direction: row;
+   align-items: center;
+   padding: 5px;
+   border-radius: 30px;
+   background-color: #4297ff3d;
+   padding-inline-end: 25px;
+  }
+  >toppanel>div>img{
+  height: 45px;
+  width: max-content;
+  aspect-ratio: 1 / 1 auto;
+  position: relative;
+  left: 0px;
+  display: block;
+  padding-inline-end: 10px;
+  opacity: 0.1;
+  }
+  >toppanel>div>p{
+   margin: 0px;
+   padding-inline-end: 0px;
+   font-size: 1.2em;
+   font-family: quicksand;
+   color: #ffffff42;
+  }
+  >ul{
+   height: 100%;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   margin: 0px;
+   padding: 8px;
+   background-color: #001cff1a;
+   border-radius: 10px;
+   margin-block-start: 10px;
+  }
+  >ul>li{
+   width: 100%;
+   height: max-content;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   border-radius: 10px;
+   background-color: #0000ff2e;
+   padding: 5px;
+   box-sizing: border-box;
+  }
+  >ul>li>box{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    height: max-content;
+    position: relative;
+    left: 0px;
+    top: 0px;
+    box-sizing: border-box;
+}
+  >ul>li>box>div:nth-of-type(1){
+   width: 100%;
+   height: -webkit-fill-available;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   color: white;
+   padding: 5px;
+   padding-block-end: 20px;
+   box-sizing: border-box;
+  }
+  >ul>li>box>div:nth-of-type(1)>p{
+   margin: 0px;
+   font-family: poppins;
+  }
+  >ul>li>box>div:nth-of-type(1)>b{
+   font-family: quicksand;
+  }
+  >ul>li>box>div:nth-of-type(2){
+   display: flex;
+   width: max-content;
+   flex-direction: row;
+   height: max-content;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   align-items: center;
+   gap: 10px;
+   padding-inline-end: 10px;
+  }
+  >ul>li>box>div:nth-of-type(2)>button{
+   all: unset;
+   width: max-content;
+   height: max-content;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   padding: 8px;
+   box-sizing: border-box;
+   border-radius: 10px;
+   display: flex;
+   align-items: center;
+   justify-content: center;
+  }
+  >ul>li>box>div:nth-of-type(2)>button>img{
+  height: 30px;
+  }
+  >ul>li>box>div:nth-of-type(2)>button:nth-of-type(1){
+  background-color: #469c00;
+  }
+  >ul>li>box>div:nth-of-type(2)>button:nth-of-type(1)>img{
+   
+  }
+  >ul>li>box>div:nth-of-type(2)>button:nth-of-type(2){
+  background-color: #b80000;
+  }
+  >ul>li>box>div:nth-of-type(2)>button:nth-of-type(2)>img{
+   
+  }
+  >actions{
+   
+  }
+  >actions>button{
+   all: unset;
+   width: 100%;
+   height: max-content;
+   position: relative;
+   left: 0px;
+   top: 0px;
+   margin-block-start: 10px;
+   padding-block: 10px;
+   font-size: 1.5em;
+   font-family: quicksand;
+   border-radius: 10px;
+   text-align: center;
+   background-color: #0092ff;
+   color: white;
+  }
  }
  >Panel[pnel="plugins"]{
   

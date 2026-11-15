@@ -15,12 +15,10 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -41,6 +39,7 @@ public class Box64Runtime {
     private static final String ROOTFS_LOADER_PATH = "lib/ld-linux-aarch64.so.1";
     private static final String BOX64_CONFIG_PATH = "etc/config.box64rc";
     private static final String ZSTD_LIBRARY_NAME = "zstd-jni-1.5.2-3";
+    private static final String WINE_PREFIX_RELATIVE_PATH = "home/xuser/.wine";
     private static final int EXECUTABLE_MODE = 0x1ED;
     private static final int CONFIG_MODE = 0x1A4;
     private static final int PERMISSION_MASK = 0x1FF;
@@ -78,7 +77,7 @@ public class Box64Runtime {
         if (installMarker.exists() && !installMarker.delete()) {
             throw new IOException("No se pudo invalidar el marcador de instalación anterior.");
         }
-        if (rootFs.exists() && !deleteRecursively(rootFs)) {
+        if (rootFs.exists() && !RuntimeFileUtils.deleteRecursively(rootFs)) {
             throw new IOException("No se pudo limpiar " + rootFs.getAbsolutePath());
         }
         if (!rootFs.mkdirs() && !rootFs.isDirectory()) {
@@ -95,7 +94,7 @@ public class Box64Runtime {
                 throw new IOException("El RootFS no contiene el cargador glibc.");
             }
             chmod(rootFsLoader, EXECUTABLE_MODE);
-            writeText(installMarker, RUNTIME_VERSION);
+            RuntimeFileUtils.writeText(installMarker, RUNTIME_VERSION);
         } catch (ErrnoException error) {
             throw new IOException("Android no pudo preparar los permisos del runtime: " + error.getMessage(), error);
         } catch (SecurityException error) {
@@ -220,7 +219,7 @@ public class Box64Runtime {
             throw new IllegalArgumentException("La lista de argumentos no puede ser null.");
         }
 
-        File executable = resolveAppStorageExecutable(relativeExecutablePath, includeExternalFiles);
+        File executable = AppStoragePaths.resolveExecutable(appContext, relativeExecutablePath, includeExternalFiles);
         File wine = new File(rootFs, "opt/wine/bin/wine");
         if (!wine.isFile()) {
             throw new IOException("No se encontró Wine en " + wine.getAbsolutePath());
@@ -277,58 +276,6 @@ public class Box64Runtime {
         return process;
     }
 
-    private File resolveAppStorageExecutable(
-            String relativePath,
-            boolean includeExternalFiles) throws IOException {
-        if (relativePath == null || relativePath.trim().isEmpty()) {
-            throw new IllegalArgumentException("La ruta relativa del ejecutable no puede estar vacía.");
-        }
-
-        String normalizedPath = relativePath.replace('\\', '/');
-        if (normalizedPath.startsWith("/") || normalizedPath.matches("^[A-Za-z]:.*")) {
-            throw new IOException("La ruta del ejecutable debe ser relativa al almacenamiento privado de la app.");
-        }
-
-        Path relative;
-        try {
-            relative = Paths.get(normalizedPath).normalize();
-        } catch (RuntimeException error) {
-            throw new IOException("La ruta del ejecutable no es válida: " + relativePath, error);
-        }
-        if (relative.isAbsolute() || relative.startsWith("..") || relative.toString().isEmpty()) {
-            throw new IOException("La ruta del ejecutable debe permanecer dentro del almacenamiento privado de la app.");
-        }
-
-        List<File> storageRoots = new ArrayList<>();
-        storageRoots.add(appContext.getFilesDir());
-        if (includeExternalFiles) {
-            File externalFiles = appContext.getExternalFilesDir(null);
-            if (externalFiles != null) {
-                storageRoots.add(externalFiles);
-            }
-        }
-
-        for (File storageRoot : storageRoots) {
-            Path canonicalRoot = storageRoot.getCanonicalFile().toPath();
-            File executable = new File(canonicalRoot.toFile(), relative.toString()).getCanonicalFile();
-            if (!executable.toPath().startsWith(canonicalRoot)) {
-                throw new IOException("La ruta del ejecutable sale del almacenamiento privado de la app.");
-            }
-            if (!executable.isFile()) {
-                continue;
-            }
-
-            String name = executable.getName();
-            if (name.length() < 4 || !name.regionMatches(true, name.length() - 4, ".exe", 0, 4)) {
-                throw new IOException("El archivo indicado no tiene extensión .exe: " + executable.getAbsolutePath());
-            }
-            return executable;
-        }
-
-        throw new FileNotFoundException("No se encontró el ejecutable en el almacenamiento privado de la app: "
-                + relativePath);
-    }
-
     private String getLibraryPath() {
         return String.join(File.pathSeparator,
                 new File(rootFs, "lib").getAbsolutePath(),
@@ -341,6 +288,7 @@ public class Box64Runtime {
     private void configureRuntimeEnvironment(Map<String, String> env, String libraryPath) {
         String pathSeparator = File.pathSeparator;
         env.put("HOME", new File(rootFs, "home/xuser").getAbsolutePath());
+        env.put("WINEPREFIX", new File(rootFs, WINE_PREFIX_RELATIVE_PATH).getAbsolutePath());
         env.put("USER", "xuser");
         env.put("TMPDIR", new File(rootFs, "tmp").getAbsolutePath());
         env.put("PATH", String.join(pathSeparator,
@@ -359,7 +307,7 @@ public class Box64Runtime {
 
     public boolean isInstalled() {
         return installMarker.isFile() &&
-                readText(installMarker).equals(RUNTIME_VERSION) &&
+                RuntimeFileUtils.readText(installMarker).equals(RUNTIME_VERSION) &&
                 rootFsLoader.isFile() &&
                 box64.isFile() &&
                 loader.isFile() &&
@@ -405,17 +353,17 @@ public class Box64Runtime {
                     }
                     chmod(target, entry.getMode() & PERMISSION_MASK);
                 } else if (entry.isSymbolicLink()) {
-                    ensureParentExists(target);
+                    RuntimeFileUtils.ensureParentExists(target);
                     removeExistingTarget(target);
                     Os.symlink(entry.getLinkName(), target.getAbsolutePath());
                 } else if (entry.isLink()) {
-                    ensureParentExists(target);
+                    RuntimeFileUtils.ensureParentExists(target);
                     removeExistingTarget(target);
                     File linkTarget = resolveTarget(rootFs, entry.getLinkName().replaceAll("^/+", ""));
                     Os.link(linkTarget.getAbsolutePath(), target.getAbsolutePath());
                     chmod(target, entry.getMode() & PERMISSION_MASK);
                 } else if (entry.isFile()) {
-                    ensureParentExists(target);
+                    RuntimeFileUtils.ensureParentExists(target);
                     removeExistingTarget(target);
                     try (BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(target))) {
                         byte[] buffer = new byte[BUFFER_SIZE];
@@ -434,7 +382,7 @@ public class Box64Runtime {
 
     private void installBox64Config() throws IOException, ErrnoException {
         File config = new File(rootFs, BOX64_CONFIG_PATH);
-        ensureParentExists(config);
+        RuntimeFileUtils.ensureParentExists(config);
         try (InputStream input = appContext.getAssets().open("runtime/box64/default.box64rc");
              FileOutputStream output = new FileOutputStream(config)) {
             byte[] buffer = new byte[BUFFER_SIZE];
@@ -471,13 +419,6 @@ public class Box64Runtime {
         return target;
     }
 
-    private void ensureParentExists(File target) throws IOException {
-        File parent = target.getParentFile();
-        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
-            throw new IOException("No se pudo crear " + parent.getAbsolutePath());
-        }
-    }
-
     private void removeExistingTarget(File target) throws IOException {
         if (Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS) && !target.delete()) {
             throw new IOException("No se pudo reemplazar " + target.getAbsolutePath());
@@ -488,33 +429,5 @@ public class Box64Runtime {
         Os.chmod(file.getAbsolutePath(), mode);
     }
 
-    private boolean deleteRecursively(File file) {
-        if (file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children == null) {
-                return false;
-            }
-            for (File child : children) {
-                if (!deleteRecursively(child)) {
-                    return false;
-                }
-            }
-        }
-        return file.delete();
-    }
 
-    private void writeText(File file, String content) throws IOException {
-        try (FileOutputStream fos = new FileOutputStream(file)) {
-            fos.write(content.getBytes(StandardCharsets.UTF_8));
-        }
-    }
-
-    private String readText(File file) {
-        try {
-            byte[] encoded = Files.readAllBytes(file.toPath());
-            return new String(encoded, StandardCharsets.UTF_8).trim();
-        } catch (IOException e) {
-            return "";
-        }
-    }
 }
