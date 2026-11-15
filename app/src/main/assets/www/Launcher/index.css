@@ -1,3 +1,6 @@
+:root{ 
+ --ThemeColor: #ff0000;
+}
 body{
 
  display: block;
@@ -28,83 +31,115 @@ main{
  flex-direction: column;
  align-items: center;
  justify-content: center;
-}
-main>Splash{
- content: "";
- width: 55%;        /* Se ajusta al 70% del ancho de la pantalla en móviles pequeños */
- max-width: 280px;  /* 👈 AQUÍ VA TU VALOR "X": nunca pasará de este tamaño */
- height: auto;      /* Mantiene la proporción original sin deformarse */
- display: block;
- aspect-ratio: 1 / 1 auto;
- position: relative;
- mask-repeat: no-repeat;
- mask-position: center;
- mask-size: cover;
- inset: 0;
- z-index: 1;
- transition: 0.25s;
- animation: 1s LogoGradient infinite;
- mask-image: url('src/Images/Icon.png');
- background: linear-gradient(0deg, #f40000 0%, #f46600 var(--stop1), #f46600 100%);
 } 
-
-main>Loading{
-
-}
-main>Loading>p{
- position: relative;
- top: 0px;
- left: 0px;
- text-align: center;
- margin: 0px;
- color: white;
- font-family: quicksand;
- margin-block-start: 5px;
-}
-main>Loading>bar{
- width: 150px;
- height: 5px;
- position: relative;
- display: flex;
- box-sizing: border-box;
- margin-block-start: 20px;
- background-color: #262626;
-}
-main>Loading>bar:before{
- content: "";
- width: 25%;
- height: 100%;
- background-color: #496dff;
- transition: 0.25s;
- animation: 2s linear loading infinite;
- position: absolute;
-}
-@property --stop1 {
- syntax: '<percentage>';
- inherits: false;
- initial-value: 0%;
-}
-
-@keyframes LogoGradient {
- 0% {
-  --stop1: 30%; /* El color superior ocupa un poco menos (desde arriba hasta el 30%) */
+main>Dashboard{
+ &{
+  width: 100%;
+  height: auto;
+  flex: 1;
+  box-sizing: border-box;
+  display: block;
+  position: relative;
+  left: 0px;
+  top: 0px;
  }
- 50% {
-  --stop1: 70%; /* El color superior se extiende más hacia abajo (hasta el 70%) */
+ >Panel{
+  width: 100%;
+  height: 100%;
+  position: relative;
+  left: 0px;
+  top: 0px;
+  display: block;
+  box-sizing: border-box;
+  --Translation-Of-Objects: translate(50px, 0px);
+  --Transition-Time-Of-Objects: 0.5s;
+  transition: 0.25s;
  }
- 100% {
-  --stop1: 30%;
+ >Panel *{
+  transition: 0.25s;
+ }
+ >Panel:not([pnel="versions"]){
+  display: none;
+ }
+ >Panel[pnel="versions"]{
+  
+ }
+ >Panel[pnel="plugins"]{
+  
+ }
+ >Panel[pnel="play"]{
+  
+ }
+ >Panel[pnel="config"]{
+  
+ }
+ >Panel[pnel="profile"]{
+  
  }
 }
-@keyframes loading {
- 0% {
-  left: 0%
+main>Toolbar{
+ &{
+  height: max-content;
+  width: 100%;
+  position: relative;
+  left: 0px;
+  top: 0px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  gap: 45px;
+  padding: 16px;
+  background-color: #7878781c;
  }
- 50% {
-  left: 100%;
-  transform: translateX(-100%)
+ >button{
+  all: unset;
+  height: max-content;
+  min-height: max-content;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1 auto;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: cover;
+  inset: 0;
+  z-index: 1;
+  transition: 0.25s;
+  padding: 0px;
  }
- 100% {
-  left: 0%;
+ >button:before{
+  content: "";
+  /* background: linear-gradient(
+45deg, #f40000, #f46600); */
+  background: linear-gradient(45deg, #6a6a6a, #ffffff);
+  width: 100%;
+  height: 100%;
+  position: relative;
+  left: 0px;
+  top: 0px;
+  display: block;
+  transition: 0.25s;
  }
-}
+ >button[isselected]{
+  &{
+   scale: 1;
+  }
+  &:before{
+   background: linear-gradient(45deg, #f40000, #f46600);
+  } 
+ }
+ >button[pnel="versions"]{
+  mask-image: url('../src/Launcher/layers.png');
+ }
+ >button[pnel="plugins"]{
+  mask-image: url('../src/Launcher/plugins.png');
+ }
+ >button[pnel="play"]{
+  mask-image: url('../src/Launcher/play.png');
+ }
+ >button[pnel="config"]{
+  mask-image: url('../src/Launcher/config.png');
+ }
+ >button[pnel="profile"]{
+  mask-image: url('../src/Launcher/profile.png');
+ }
+} 
