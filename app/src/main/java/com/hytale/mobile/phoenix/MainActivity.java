@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
+    private static final String TAG = "MainActivity";
     private static final int REQUEST_SELECT_VERSION_FOLDER = 4102;
 
     Gson gson = new Gson();
@@ -444,19 +446,22 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void launchGame(
-            String versionName,
-            String playerName,
-            String authMode,
-            String sessionUuid,
-            String identityToken,
-            String sessionToken) {
+                String versionName,
+                String playerName) {
             try {
+                installBox64();
                 launchHytaleClientWithDisplay(
-                        versionName, playerName, authMode, sessionUuid, identityToken, sessionToken);
+                        versionName,
+                        playerName,
+                        "offline",
+                        UUID.randomUUID().toString(),
+                        "",
+                        "");
             } catch (IOException | RuntimeException error) {
                 String message = error.getMessage() == null
                         ? "No se pudo preparar el inicio del juego."
                         : error.getMessage();
+                Log.e(TAG, "No se pudo iniciar Hytale.", error);
                 runOnUiThread(() -> {
                     Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
                     webView.evaluateJavascript(

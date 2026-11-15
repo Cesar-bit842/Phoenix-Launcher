@@ -3,6 +3,8 @@
 
   async function Main() {
     setTimeout(async function () {  
+     window.location.href = "./Launcher/index.html";
+     return;
      if(await ValidateConfig()){ 
       if(await ValidateAccount()){
        window.location.href = "./Launcher/index.html";

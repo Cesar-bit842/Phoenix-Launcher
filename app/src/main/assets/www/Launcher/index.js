@@ -11,15 +11,32 @@
     TogglePanel(attr);
    });
   }
-  //selectAndCopyVersion
-  //getVersionDirectoryNames
-  //launchGame(
-  //String versionName,
-  //      String playerName,
-  //      String authMode,
-  //      String sessionUuid,
-  //      String identityToken,
-  //      String sessionToken)
+  document.getElementById('AddVersion').addEventListener('click', function(){
+   AndroidBridge.selectAndCopyVersion();
+  }) 
+  let list = document.getElementById('list');
+  for (const versionName of JSON.parse(AndroidBridge.getVersionDirectoryNames())) {
+   const entry = document.createElement('li');
+   entry.innerHTML = `<box>
+       <div>
+        <p>Release</p>
+        <b></b>
+       </div>
+       <div>
+        <button type="button" class="launch-version">
+         <img src="../src/Launcher/play.png" alt="Play"/>
+        </button>
+        <button type="button">
+         <img src="../src/Launcher/Delete.png" alt="Delete"/>
+        </button>
+       </div>
+      </box>`;
+   entry.querySelector('b').textContent = versionName;
+   entry.querySelector('.launch-version').addEventListener('click', function () {
+    AndroidBridge.launchGame(versionName, "LastKnight");
+   });
+   list.appendChild(entry);
+  } 
  }      
  async function TogglePanel(Panel) { 
   const mainContainerId = 'main>Dashboard'; 
