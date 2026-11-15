@@ -1,0 +1,6 @@
+Winlator X server and renderer components are derived from Winlator by brunodev85.
+They are licensed under the GNU Lesser General Public License, version 2.1.
+The source was adapted for Phoenix Launcher by removing Winlator-activity-specific
+integrations and adding loopback TCP transport for the X11 connection.
+
+The complete LGPL-2.1 license text is included in LICENSE.

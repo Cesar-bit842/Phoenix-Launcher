@@ -6,6 +6,8 @@ import com.hytale.mobile.phoenix.auth.HytaleAuthLibrary;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -17,11 +19,20 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import org.json.JSONObject;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
 public class MainActivity extends Activity {
+    private static final int REQUEST_SELECT_VERSION_FOLDER = 4102;
+
     Gson gson = new Gson();
     private WebView webView;
     private Box64Runtime box64Runtime;
     private final HytaleAuthLibrary hytaleAuth = new HytaleAuthLibrary("Phoenix");
+    private boolean versionImportInProgress;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -64,12 +75,196 @@ public class MainActivity extends Activity {
             hideSystemBars();
         }
     }
+
+    public Process launchHytaleClient(
+            String versionName,
+            String appDirectory,
+            String userDirectory,
+            String javaExecutable,
+            String playerName,
+            String authMode,
+            String sessionUuid,
+            String identityToken,
+            String sessionToken) throws IOException {
+        List<String> arguments = buildHytaleClientArguments(
+                versionName, appDirectory, userDirectory, javaExecutable, playerName,
+                authMode, sessionUuid, identityToken, sessionToken);
+        if (box64Runtime == null) {
+            throw new IllegalStateException("El runtime de Box64 todavía no está inicializado.");
+        }
+        String executablePath = "Versions/" + versionName + "/Client/HytaleClient.exe";
+        return box64Runtime.launchExeInAppStorage(executablePath, arguments);
+    }
+
+    public void launchHytaleClientWithDisplay(
+            String versionName,
+            String appDirectory,
+            String userDirectory,
+            String javaExecutable,
+            String playerName,
+            String authMode,
+            String sessionUuid,
+            String identityToken,
+            String sessionToken) {
+        List<String> arguments = buildHytaleClientArguments(
+                versionName, appDirectory, userDirectory, javaExecutable, playerName,
+                authMode, sessionUuid, identityToken, sessionToken);
+        Intent intent = new Intent(this, GameDisplayActivity.class);
+        intent.putExtra(GameDisplayActivity.EXTRA_EXECUTABLE_PATH,
+                "Versions/" + versionName + "/Client/HytaleClient.exe");
+        intent.putStringArrayListExtra(
+                GameDisplayActivity.EXTRA_ARGUMENTS, new ArrayList<>(arguments));
+        runOnUiThread(() -> startActivity(intent));
+    }
+
+    private static List<String> buildHytaleClientArguments(
+            String versionName,
+            String appDirectory,
+            String userDirectory,
+            String javaExecutable,
+            String playerName,
+            String authMode,
+            String sessionUuid,
+            String identityToken,
+            String sessionToken) {
+        if (versionName == null
+                || versionName.trim().isEmpty()
+                || versionName.equals(".")
+                || versionName.equals("..")
+                || versionName.contains("/")
+                || versionName.contains("\\")) {
+            throw new IllegalArgumentException("El nombre de la versión no es válido.");
+        }
+        requireLaunchArgument("appDirectory", appDirectory);
+        requireLaunchArgument("userDirectory", userDirectory);
+        requireLaunchArgument("javaExecutable", javaExecutable);
+        requireLaunchArgument("playerName", playerName);
+        requireLaunchArgument("sessionUuid", sessionUuid);
+        if (!"offline".equals(authMode) && !"authenticated".equals(authMode)) {
+            throw new IllegalArgumentException("authMode debe ser 'offline' o 'authenticated'.");
+        }
+        if ("authenticated".equals(authMode)) {
+            requireLaunchArgument("identityToken", identityToken);
+            requireLaunchArgument("sessionToken", sessionToken);
+        }
+
+        List<String> arguments = new ArrayList<>();
+        arguments.add("--app-dir");
+        arguments.add(appDirectory);
+        arguments.add("--user-dir");
+        arguments.add(userDirectory);
+        arguments.add("--java-exec");
+        arguments.add(javaExecutable);
+        arguments.add("--name");
+        arguments.add(playerName);
+        arguments.add("--auth-mode");
+        arguments.add(authMode);
+        arguments.add("--uuid");
+        arguments.add(sessionUuid);
+        if ("authenticated".equals(authMode)) {
+            arguments.add("--identity-token");
+            arguments.add(identityToken);
+            arguments.add("--session-token");
+            arguments.add(sessionToken);
+        }
+        return arguments;
+    }
+
+    private static void requireLaunchArgument(String name, String value) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(name + " no puede estar vacío.");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_SELECT_VERSION_FOLDER) {
+            return;
+        }
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            versionImportInProgress = false;
+            notifyVersionImport(false, true, null, "Selección de carpeta cancelada.");
+            return;
+        }
+
+        Uri sourceTreeUri = data.getData();
+        int permissionFlags = data.getFlags()
+                & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (permissionFlags == 0
+                || (data.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) == 0) {
+            versionImportInProgress = false;
+            notifyVersionImport(
+                    false, false, null, "Android no concedió permiso persistente para la carpeta.");
+            return;
+        }
+        try {
+            getContentResolver().takePersistableUriPermission(sourceTreeUri, permissionFlags);
+        } catch (SecurityException exception) {
+            versionImportInProgress = false;
+            notifyVersionImport(
+                    false, false, null, "No se pudo guardar el permiso para leer la carpeta seleccionada.");
+            return;
+        }
+
+        new Thread(() -> {
+            String copiedPath = null;
+            String error = null;
+            try {
+                copiedPath = VersionImportUtils.copyVersion(getApplicationContext(), sourceTreeUri);
+            } catch (IOException | RuntimeException exception) {
+                error = exception.getMessage() == null
+                        ? "Ocurrió un error al copiar la carpeta."
+                        : exception.getMessage();
+            } finally {
+                try {
+                    getContentResolver().releasePersistableUriPermission(
+                            sourceTreeUri, permissionFlags);
+                } catch (SecurityException exception) {
+                    String releaseError = "No se pudo liberar el permiso de la carpeta seleccionada.";
+                    error = error == null ? releaseError : error + " " + releaseError;
+                }
+            }
+
+            String completedPath = copiedPath;
+            String completedError = error;
+            runOnUiThread(() -> {
+                versionImportInProgress = false;
+                if (completedPath == null) {
+                    notifyVersionImport(false, false, null, completedError);
+                } else {
+                    notifyVersionImport(
+                            true,
+                            false,
+                            completedPath,
+                            completedError == null
+                                    ? "Carpeta copiada correctamente."
+                                    : "Carpeta copiada. " + completedError);
+                }
+            });
+        }, "version-folder-import").start();
+    }
+
     private void hideSystemBars() {
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(
                 getWindow(), getWindow().getDecorView());
         controller.hide(WindowInsetsCompat.Type.systemBars());
         controller.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+    }
+
+    private void notifyVersionImport(
+            boolean success,
+            boolean cancelled,
+            String path,
+            String message) {
+        String result = "{\"success\":" + success
+                + ",\"cancelled\":" + cancelled
+                + ",\"path\":" + (path == null ? "null" : JSONObject.quote(path))
+                + ",\"message\":" + JSONObject.quote(message) + "}";
+        webView.post(() -> webView.evaluateJavascript(
+                "if (window.onVersionImportResult) window.onVersionImportResult(" + result + ");",
+                null));
     }
 
     public boolean saveConfigJson(String jsonContent) {
@@ -140,6 +335,32 @@ public class MainActivity extends Activity {
                 public void onError(Exception error) {
                     System.out.println("error: " + error.getMessage());
                     webView.evaluateJavascript("window.onHytaleLoginResult(false)", null);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void selectAndCopyVersion() {
+            runOnUiThread(() -> {
+                if (versionImportInProgress) {
+                    notifyVersionImport(
+                            false, false, null, "Ya hay una importación de carpeta en curso.");
+                    return;
+                }
+                versionImportInProgress = true;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                intent.addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                try {
+                    startActivityForResult(intent, REQUEST_SELECT_VERSION_FOLDER);
+                } catch (RuntimeException exception) {
+                    versionImportInProgress = false;
+                    String message = exception.getMessage() == null
+                            ? "No se pudo abrir el selector de carpetas."
+                            : exception.getMessage();
+                    notifyVersionImport(false, false, null, message);
                 }
             });
         }

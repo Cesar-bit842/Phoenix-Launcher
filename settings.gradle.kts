@@ -24,4 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Phoenix"
 include(":app")
+include(":winlator-display")
  

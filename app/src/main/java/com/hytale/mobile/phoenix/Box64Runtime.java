@@ -15,6 +15,7 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -107,13 +109,7 @@ public class Box64Runtime {
             throw new IllegalStateException("Instala primero el runtime de Box64.");
         }
 
-        String pathSeparator = File.pathSeparator;
-        String libraryPath = String.join(pathSeparator,
-                new File(rootFs, "lib").getAbsolutePath(),
-                new File(rootFs, "usr/lib").getAbsolutePath(),
-                new File(rootFs, "lib/aarch64-linux-gnu").getAbsolutePath(),
-                new File(rootFs, "usr/lib/aarch64-linux-gnu").getAbsolutePath()
-        );
+        String libraryPath = getLibraryPath();
 
         List<String> command = Arrays.asList(
                 loader.getAbsolutePath(),
@@ -128,23 +124,7 @@ public class Box64Runtime {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.directory(rootFs);
             pb.redirectErrorStream(true);
-            Map<String, String> env = pb.environment();
-            env.put("HOME", new File(rootFs, "home/xuser").getAbsolutePath());
-            env.put("USER", "xuser");
-            env.put("TMPDIR", new File(rootFs, "tmp").getAbsolutePath());
-            env.put("PATH", String.join(pathSeparator,
-                    new File(rootFs, "opt/wine/bin").getAbsolutePath(),
-                    new File(rootFs, "usr/local/bin").getAbsolutePath(),
-                    new File(rootFs, "usr/bin").getAbsolutePath()
-            ));
-            env.put("LD_LIBRARY_PATH", libraryPath);
-            env.put("BOX64_RCFILE", new File(rootFs, BOX64_CONFIG_PATH).getAbsolutePath());
-            env.put("BOX64_LD_LIBRARY_PATH", new File(rootFs, "lib/x86_64-linux-gnu").getAbsolutePath());
-            env.put("BOX64_NOBANNER", "1");
-            env.put("BOX64_DYNAREC", "1");
-            env.put("BOX64_UNITYPLAYER", "0");
-            env.put("BOX64_DYNACACHE", "0");
-
+            configureRuntimeEnvironment(pb.environment(), libraryPath);
             process = pb.start();
         } catch (IOException error) {
             String details = "No se pudo iniciar Box64. command=" + String.join(" ", command) + "; " +
@@ -192,6 +172,189 @@ public class Box64Runtime {
             throw new IOException(details);
         }
         return output.isEmpty() ? "Box64 terminó sin salida." : output;
+    }
+
+    public Process launchExeInInternalStorage(
+            String relativeExecutablePath,
+            List<String> arguments) throws IOException {
+        return launchExe(relativeExecutablePath, arguments, false);
+    }
+
+    public Process launchExeInAppStorage(
+            String relativeExecutablePath,
+            List<String> arguments) throws IOException {
+        return launchExe(relativeExecutablePath, arguments, true);
+    }
+
+    public Process launchExeInAppStorage(
+            String relativeExecutablePath,
+            List<String> arguments,
+            String displayAddress) throws IOException {
+        if (displayAddress == null || !displayAddress.matches("127\\.0\\.0\\.1:[0-9]{1,5}")) {
+            throw new IllegalArgumentException("La dirección del display debe ser loopback.");
+        }
+        int displayNumber = Integer.parseInt(displayAddress.substring(displayAddress.lastIndexOf(':') + 1));
+        if (displayNumber > 65535 - 6000) {
+            throw new IllegalArgumentException("El número del display no es válido.");
+        }
+        return launchExe(relativeExecutablePath, arguments, true, displayAddress);
+    }
+
+    private Process launchExe(
+            String relativeExecutablePath,
+            List<String> arguments,
+            boolean includeExternalFiles) throws IOException {
+        return launchExe(relativeExecutablePath, arguments, includeExternalFiles, null);
+    }
+
+    private Process launchExe(
+            String relativeExecutablePath,
+            List<String> arguments,
+            boolean includeExternalFiles,
+            String displayAddress) throws IOException {
+        requireSupportedArchitecture();
+        if (!isInstalled()) {
+            throw new IllegalStateException("Instala primero el runtime de Box64.");
+        }
+        if (arguments == null) {
+            throw new IllegalArgumentException("La lista de argumentos no puede ser null.");
+        }
+
+        File executable = resolveAppStorageExecutable(relativeExecutablePath, includeExternalFiles);
+        File wine = new File(rootFs, "opt/wine/bin/wine");
+        if (!wine.isFile()) {
+            throw new IOException("No se encontró Wine en " + wine.getAbsolutePath());
+        }
+
+        String libraryPath = getLibraryPath();
+        List<String> command = new ArrayList<>(Arrays.asList(
+                loader.getAbsolutePath(),
+                "--library-path",
+                libraryPath,
+                box64.getAbsolutePath(),
+                wine.getAbsolutePath(),
+                executable.getAbsolutePath()
+        ));
+        for (String argument : arguments) {
+            if (argument == null) {
+                throw new IllegalArgumentException("Los argumentos no pueden contener valores null.");
+            }
+            command.add(argument);
+        }
+
+        Process process;
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder(command);
+            processBuilder.directory(executable.getParentFile());
+            processBuilder.redirectErrorStream(true);
+            configureRuntimeEnvironment(processBuilder.environment(), libraryPath);
+            if (displayAddress != null) {
+                processBuilder.environment().put("DISPLAY", displayAddress);
+            }
+            process = processBuilder.start();
+        } catch (IOException error) {
+            String details = "No se pudo iniciar el ejecutable con Box64 y Wine. executable=" +
+                    executable.getAbsolutePath() + "; cwd=" + executable.getParentFile().getAbsolutePath() +
+                    "; causa=" + error.getMessage();
+            Log.e(TAG, details, error);
+            throw new IOException(details, error);
+        }
+
+        Process runningProcess = process;
+        Thread outputReader = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(runningProcess.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    Log.i(TAG, line);
+                }
+            } catch (IOException error) {
+                Log.e(TAG, "No se pudo leer la salida de " + executable.getAbsolutePath(), error);
+            }
+        }, "box64-exe-output");
+        outputReader.setDaemon(true);
+        outputReader.start();
+        return process;
+    }
+
+    private File resolveAppStorageExecutable(
+            String relativePath,
+            boolean includeExternalFiles) throws IOException {
+        if (relativePath == null || relativePath.trim().isEmpty()) {
+            throw new IllegalArgumentException("La ruta relativa del ejecutable no puede estar vacía.");
+        }
+
+        String normalizedPath = relativePath.replace('\\', '/');
+        if (normalizedPath.startsWith("/") || normalizedPath.matches("^[A-Za-z]:.*")) {
+            throw new IOException("La ruta del ejecutable debe ser relativa al almacenamiento privado de la app.");
+        }
+
+        Path relative;
+        try {
+            relative = Paths.get(normalizedPath).normalize();
+        } catch (RuntimeException error) {
+            throw new IOException("La ruta del ejecutable no es válida: " + relativePath, error);
+        }
+        if (relative.isAbsolute() || relative.startsWith("..") || relative.toString().isEmpty()) {
+            throw new IOException("La ruta del ejecutable debe permanecer dentro del almacenamiento privado de la app.");
+        }
+
+        List<File> storageRoots = new ArrayList<>();
+        storageRoots.add(appContext.getFilesDir());
+        if (includeExternalFiles) {
+            File externalFiles = appContext.getExternalFilesDir(null);
+            if (externalFiles != null) {
+                storageRoots.add(externalFiles);
+            }
+        }
+
+        for (File storageRoot : storageRoots) {
+            Path canonicalRoot = storageRoot.getCanonicalFile().toPath();
+            File executable = new File(canonicalRoot.toFile(), relative.toString()).getCanonicalFile();
+            if (!executable.toPath().startsWith(canonicalRoot)) {
+                throw new IOException("La ruta del ejecutable sale del almacenamiento privado de la app.");
+            }
+            if (!executable.isFile()) {
+                continue;
+            }
+
+            String name = executable.getName();
+            if (name.length() < 4 || !name.regionMatches(true, name.length() - 4, ".exe", 0, 4)) {
+                throw new IOException("El archivo indicado no tiene extensión .exe: " + executable.getAbsolutePath());
+            }
+            return executable;
+        }
+
+        throw new FileNotFoundException("No se encontró el ejecutable en el almacenamiento privado de la app: "
+                + relativePath);
+    }
+
+    private String getLibraryPath() {
+        return String.join(File.pathSeparator,
+                new File(rootFs, "lib").getAbsolutePath(),
+                new File(rootFs, "usr/lib").getAbsolutePath(),
+                new File(rootFs, "lib/aarch64-linux-gnu").getAbsolutePath(),
+                new File(rootFs, "usr/lib/aarch64-linux-gnu").getAbsolutePath()
+        );
+    }
+
+    private void configureRuntimeEnvironment(Map<String, String> env, String libraryPath) {
+        String pathSeparator = File.pathSeparator;
+        env.put("HOME", new File(rootFs, "home/xuser").getAbsolutePath());
+        env.put("USER", "xuser");
+        env.put("TMPDIR", new File(rootFs, "tmp").getAbsolutePath());
+        env.put("PATH", String.join(pathSeparator,
+                new File(rootFs, "opt/wine/bin").getAbsolutePath(),
+                new File(rootFs, "usr/local/bin").getAbsolutePath(),
+                new File(rootFs, "usr/bin").getAbsolutePath()
+        ));
+        env.put("LD_LIBRARY_PATH", libraryPath);
+        env.put("BOX64_RCFILE", new File(rootFs, BOX64_CONFIG_PATH).getAbsolutePath());
+        env.put("BOX64_LD_LIBRARY_PATH", new File(rootFs, "lib/x86_64-linux-gnu").getAbsolutePath());
+        env.put("BOX64_NOBANNER", "1");
+        env.put("BOX64_DYNAREC", "1");
+        env.put("BOX64_UNITYPLAYER", "0");
+        env.put("BOX64_DYNACACHE", "0");
     }
 
     public boolean isInstalled() {
