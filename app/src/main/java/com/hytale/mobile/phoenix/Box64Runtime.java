@@ -19,6 +19,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -34,6 +35,13 @@ public class Box64Runtime {
     private static final String ROOTFS_DIRECTORY = "rootfs";
     private static final String INSTALL_MARKER = ".phoenix-box64-runtime";
     private static final String RUNTIME_VERSION = "winlator-box64-0.4.4";
+    private static final String WINE_TEMP_PATH_PREFIX =
+            "/data/data/com.hytale.mobile.phoenix/files/rootfs/tmp";
+    private static final String WINE_TEMP_ALIAS_NAME = "t_temp_runtime";
+    private static final String[] WINE_TEMP_PATH_FILES = {
+            "opt/wine/lib/wine/x86_64-unix/ntdll.so",
+            "opt/wine/lib/wine/x86_64-unix/nsiproxy.so"
+    };
     private static final String BOX64_LIBRARY = "libbox64.so";
     private static final String LOADER_LIBRARY = "libbox64_loader.so";
     private static final String ROOTFS_LOADER_PATH = "lib/ld-linux-aarch64.so.1";
@@ -66,7 +74,10 @@ public class Box64Runtime {
 
     public void install() throws IOException {
         requireSupportedArchitecture();
-        if (isInstalled()) return;
+        if (isInstalled()) {
+            prepareWineTempPathCompatibility();
+            return;
+        }
         if (!box64.isFile() || !loader.isFile()) {
             throw new IOException(
                     "Faltan Box64 o su cargador en el directorio nativo instalado: " +
@@ -94,12 +105,119 @@ public class Box64Runtime {
                 throw new IOException("El RootFS no contiene el cargador glibc.");
             }
             chmod(rootFsLoader, EXECUTABLE_MODE);
+            prepareWineTempPathCompatibility();
             RuntimeFileUtils.writeText(installMarker, RUNTIME_VERSION);
         } catch (ErrnoException error) {
             throw new IOException("Android no pudo preparar los permisos del runtime: " + error.getMessage(), error);
         } catch (SecurityException error) {
             throw new IOException("Android denegó el acceso al almacenamiento privado: " + error.getMessage(), error);
         }
+    }
+
+    private void prepareWineTempPathCompatibility() throws IOException {
+        File tempDirectory = new File(rootFs, "tmp");
+        if (!tempDirectory.isDirectory()) {
+            throw new IOException("No se encontró el directorio temporal del RootFS: " +
+                    tempDirectory.getAbsolutePath());
+        }
+
+        File canonicalRoot;
+        File canonicalTempDirectory;
+        try {
+            canonicalRoot = rootFs.getCanonicalFile();
+            canonicalTempDirectory = tempDirectory.getCanonicalFile();
+        } catch (IOException error) {
+            throw new IOException("No se pudo resolver el directorio temporal del RootFS.", error);
+        }
+        if (!canonicalTempDirectory.toPath().startsWith(canonicalRoot.toPath())) {
+            throw new IOException("El directorio temporal del RootFS apunta fuera del RootFS.");
+        }
+
+        File tempAlias = new File(appContext.getDataDir(), WINE_TEMP_ALIAS_NAME);
+        ensureWineTempAlias(tempAlias, canonicalTempDirectory);
+
+        // Comentamos o eliminamos el bucle que busca la cadena en los .so y daña la instalación
+        /*
+        for (String relativePath : WINE_TEMP_PATH_FILES) {
+            File runtimeFile = resolveTarget(rootFs, relativePath);
+            ...
+            patchWineTempPath(runtimeFile, oldPrefix, newPrefix);
+        }
+        */
+    }
+
+    private void ensureWineTempAlias(File alias, File target) throws IOException {
+        Path aliasPath = alias.toPath();
+        if (Files.isSymbolicLink(aliasPath)) {
+            if (!alias.getCanonicalFile().equals(target)) {
+                throw new IOException("El enlace temporal existente apunta a otro destino: " +
+                        alias.getAbsolutePath());
+            }
+            return;
+        }
+        if (Files.exists(aliasPath, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("No se puede crear el enlace temporal; la ruta ya existe: " +
+                    alias.getAbsolutePath());
+        }
+        try {
+            Os.symlink(target.getAbsolutePath(), alias.getAbsolutePath());
+        } catch (ErrnoException error) {
+            throw new IOException("No se pudo crear el enlace temporal de Wine: " +
+                    alias.getAbsolutePath(), error);
+        }
+        if (!Files.isSymbolicLink(aliasPath) || !alias.getCanonicalFile().equals(target)) {
+            throw new IOException("El enlace temporal de Wine no apunta al directorio esperado: " +
+                    alias.getAbsolutePath());
+        }
+    }
+
+    private void patchWineTempPath(File file, byte[] oldPrefix, byte[] newPrefix) throws IOException {
+        byte[] contents = Files.readAllBytes(file.toPath());
+        int replacements = replaceByteSequence(contents, oldPrefix, newPrefix);
+        if (replacements == 0 && !containsByteSequence(contents, newPrefix)) {
+            throw new IOException("No se encontró la ruta temporal esperada en " +
+                    file.getAbsolutePath());
+        }
+        if (replacements > 0) {
+            try (FileOutputStream output = new FileOutputStream(file)) {
+                output.write(contents);
+            }
+            Log.i(TAG, "Se actualizó la ruta temporal en " + file.getAbsolutePath() +
+                    " (" + replacements + " coincidencias).");
+        }
+    }
+
+    private int replaceByteSequence(byte[] contents, byte[] oldSequence, byte[] newSequence) {
+        int replacements = 0;
+        for (int i = 0; i <= contents.length - oldSequence.length; i++) {
+            boolean matches = true;
+            for (int j = 0; j < oldSequence.length; j++) {
+                if (contents[i + j] != oldSequence[j]) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                System.arraycopy(newSequence, 0, contents, i, newSequence.length);
+                replacements++;
+                i += oldSequence.length - 1;
+            }
+        }
+        return replacements;
+    }
+
+    private boolean containsByteSequence(byte[] contents, byte[] sequence) {
+        for (int i = 0; i <= contents.length - sequence.length; i++) {
+            boolean matches = true;
+            for (int j = 0; j < sequence.length; j++) {
+                if (contents[i + j] != sequence[j]) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) return true;
+        }
+        return false;
     }
 
     public String runVersion() throws IOException {
@@ -284,8 +402,52 @@ public class Box64Runtime {
                 new File(rootFs, "usr/lib/aarch64-linux-gnu").getAbsolutePath()
         );
     }
-
     private void configureRuntimeEnvironment(Map<String, String> env, String libraryPath) {
+        String pathSeparator = File.pathSeparator;
+        String nativeLibDir = appContext.getApplicationInfo().nativeLibraryDir;
+
+        env.remove("WINELOADERNOEXEC");
+        env.remove("BOX64_NOSIGSEGV"); 
+        env.put("HOME", new File(rootFs, "home/xuser").getAbsolutePath());
+        env.put("WINEPREFIX", new File(rootFs, WINE_PREFIX_RELATIVE_PATH).getAbsolutePath());
+        env.put("USER", "xuser");
+        env.put("TMPDIR", new File(rootFs, "tmp").getAbsolutePath());
+        env.put("PATH", String.join(pathSeparator,
+                new File(rootFs, "opt/wine/bin").getAbsolutePath(),
+                new File(rootFs, "usr/local/bin").getAbsolutePath(),
+                new File(rootFs, "usr/bin").getAbsolutePath()
+        ));
+        env.put("LD_LIBRARY_PATH", libraryPath + pathSeparator + nativeLibDir);
+        env.put("BOX64_RCFILE", new File(rootFs, BOX64_CONFIG_PATH).getAbsolutePath());
+        env.put("BOX64_LD_LIBRARY_PATH", new File(rootFs, "lib/x86_64-linux-gnu").getAbsolutePath() + pathSeparator + nativeLibDir);
+
+        // ¡Forzamos a Box64 a usar el nativeLibraryDir actual para evitar que busque el hash viejo!
+        env.put("BOX64_PATH", nativeLibDir);
+        env.put("BOX64_LIB", new File(nativeLibDir, BOX64_LIBRARY).getAbsolutePath());
+
+        // Banderas de Wine para saltar el bloqueo del TEB
+        env.put("WINEESYNC", "0");
+        env.put("WINEFSYNC", "0");
+        env.put("WINEDEBUG", "-all");
+        env.put("BOX64_NOSIGSEGV", "1");
+        // Banderas de estabilidad y control de memoria para Box64
+
+        env.put("BOX64_X87HACK", "1");
+        env.put("BOX64_SEGFAULT", "2");
+        env.put("BOX64_DYNAREC_WAIT", "1");
+        env.put("BOX64_AVX", "0");
+        env.put("BOX64_SHOWSEGV", "0");
+
+        env.put("BOX64_NOBANNER", "1");
+        env.put("BOX64_DYNAREC", "1");
+        env.put("BOX64_LD_DEBUG", "1");
+        env.put("BOX64_LOG", "2");
+        env.put("BOX64_TRACE_FILE",
+                new File(appContext.getFilesDir(), "box64-%pid.txt").getAbsolutePath());
+        env.put("BOX64_UNITYPLAYER", "0");
+        env.put("BOX64_DYNACACHE", "0");
+    }
+    private void configureRuntimeEnvironmentobsolete(Map<String, String> env, String libraryPath) {
         String pathSeparator = File.pathSeparator;
         env.put("HOME", new File(rootFs, "home/xuser").getAbsolutePath());
         env.put("WINEPREFIX", new File(rootFs, WINE_PREFIX_RELATIVE_PATH).getAbsolutePath());
@@ -301,6 +463,10 @@ public class Box64Runtime {
         env.put("BOX64_LD_LIBRARY_PATH", new File(rootFs, "lib/x86_64-linux-gnu").getAbsolutePath());
         env.put("BOX64_NOBANNER", "1");
         env.put("BOX64_DYNAREC", "1");
+        env.put("BOX64_LD_DEBUG", "1");
+        env.put("BOX64_LOG", "2");
+        env.put("BOX64_TRACE_FILE",
+                new File(appContext.getFilesDir(), "box64-%pid.txt").getAbsolutePath());
         env.put("BOX64_UNITYPLAYER", "0");
         env.put("BOX64_DYNACACHE", "0");
     }

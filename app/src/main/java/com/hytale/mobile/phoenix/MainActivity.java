@@ -449,7 +449,7 @@ public class MainActivity extends Activity {
                 String versionName,
                 String playerName) {
             try {
-                installBox64();
+                box64Runtime.install();
                 launchHytaleClientWithDisplay(
                         versionName,
                         playerName,
